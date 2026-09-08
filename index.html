@@ -1,0 +1,1787 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>El Sótano — Isaac VR (Hand Tracking)</title>
+
+<style>
+/* ==========================================================================
+   HOJA DE ESTILOS
+   Paleta: sótano tenebroso, iluminado por velas. Todo dibujado con CSS puro
+   (sin imágenes externas) para que el juego funcione sin conexión.
+   ========================================================================== */
+:root{
+  --fondo:        #0a0705;
+  --panel:        #17100b;
+  --panel-borde:  #3a2417;
+  --hueso:        #e8dcc3;
+  --hueso-tenue:  #a4937a;
+  --sangre:       #8c1f1f;
+  --sangre-brillo:#c73b3b;
+  --oro:          #c9a24a;
+  --azul-lagrima: #6fb3d9;
+  --verde-veneno: #6f8a3a;
+}
+
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{
+  margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+  background:var(--fondo); color:var(--hueso);
+  font-family: Georgia, 'Times New Roman', serif;
+  user-select:none;
+}
+#lienzo-juego{ position:fixed; inset:0; display:block; outline:none; }
+
+/* ---- Contenedor raíz (también sirve de dom-overlay en VR) ---- */
+#contenedor-juego{ position:fixed; inset:0; }
+
+/* ---- Título distintivo, "goteo" hecho solo con sombras de texto ---- */
+.titulo-gotico{
+  font-family: Georgia, serif;
+  font-weight:700;
+  letter-spacing:2px;
+  color:var(--sangre-brillo);
+  text-shadow:
+    0 2px 0 #4a0d0d,
+    0 6px 10px rgba(0,0,0,.8),
+    0 0 24px rgba(140,31,31,.55);
+  text-transform:none;
+}
+
+/* ---- Pantallas superpuestas (menú, instrucciones, pausa, fin) ---- */
+.pantalla{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(60,20,15,.35), rgba(0,0,0,.86) 70%);
+  backdrop-filter: blur(2px);
+  padding:24px;
+  z-index:20;
+  animation: aparecer .35s ease-out;
+}
+.pantalla.oculto{ display:none; }
+@keyframes aparecer{ from{opacity:0; transform:scale(1.02);} to{opacity:1; transform:scale(1);} }
+
+.panel{
+  background: linear-gradient(180deg, #1c130d, #120b07);
+  border:1px solid var(--panel-borde);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.6), 0 20px 60px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.5);
+  border-radius:6px;
+  padding:36px 42px;
+  max-width:560px;
+  width:100%;
+  text-align:center;
+  position:relative;
+}
+.panel::before{
+  content:"";
+  position:absolute; inset:6px;
+  border:1px solid rgba(201,162,74,.15);
+  border-radius:4px;
+  pointer-events:none;
+}
+
+.subtitulo{ color:var(--hueso-tenue); font-size:15px; margin:6px 0 26px; line-height:1.5; }
+
+.boton-hueso{
+  display:inline-block;
+  background: linear-gradient(180deg,#2a1b12,#160e08);
+  border:1px solid #4a3220;
+  color:var(--oro);
+  font-family:Georgia, serif;
+  font-size:17px;
+  letter-spacing:1px;
+  padding:13px 30px;
+  margin:7px 6px;
+  border-radius:3px;
+  cursor:pointer;
+  min-width:230px;
+  transition: transform .12s ease, background .2s ease, box-shadow .2s ease;
+  box-shadow: 0 3px 0 #05030100, 0 6px 14px rgba(0,0,0,.5);
+}
+.boton-hueso:hover, .boton-hueso:focus-visible{
+  background: linear-gradient(180deg,#3a2515,#1c120a);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(140,31,31,.35);
+  outline:none;
+}
+.boton-hueso:active{ transform: translateY(0); }
+.boton-hueso.secundario{ color:var(--hueso-tenue); border-color:#2c2016; }
+.boton-hueso.peligro{ color:var(--sangre-brillo); }
+
+.lista-controles{ text-align:left; margin:0 auto 22px; max-width:460px; font-size:14.5px; color:var(--hueso-tenue); line-height:1.85; }
+.lista-controles b{ color:var(--hueso); }
+.fila-control{ display:flex; align-items:flex-start; gap:10px; margin-bottom:6px; }
+.icono-gesto{ font-size:19px; width:26px; text-align:center; flex-shrink:0; }
+.divisor-instrucciones{ border:none; border-top:1px solid var(--panel-borde); margin:18px 0; }
+
+/* ---- HUD (dentro de la partida) ---- */
+#hud{ position:absolute; inset:0; pointer-events:none; z-index:10; display:none; }
+#hud.visible{ display:block; }
+
+.hud-esquina{ position:absolute; top:16px; display:flex; gap:14px; align-items:center; }
+#hud-corazones{ left:16px; gap:5px; display:flex; }
+.corazon{ width:26px; height:26px; position:relative; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+.corazon svg{ width:100%; height:100%; display:block; }
+
+#hud-derecha{ right:16px; text-align:right; display:flex; flex-direction:column; gap:6px; align-items:flex-end; font-size:14px; color:var(--hueso-tenue); }
+#hud-derecha b{ color:var(--oro); font-size:17px; }
+
+#hud-nivel{
+  position:absolute; top:16px; left:50%; transform:translateX(-50%);
+  text-align:center; font-size:13px; letter-spacing:1.5px; color:var(--hueso-tenue);
+}
+#hud-nivel b{ display:block; color:var(--hueso); font-size:16px; letter-spacing:.5px; }
+
+#barra-jefe{
+  position:absolute; top:60px; left:50%; transform:translateX(-50%);
+  width:min(60vw,480px); text-align:center; display:none;
+}
+#barra-jefe.visible{ display:block; }
+#barra-jefe .nombre-jefe{ color:var(--sangre-brillo); font-size:14px; letter-spacing:2px; margin-bottom:5px; }
+.barra-fondo{ width:100%; height:12px; background:rgba(0,0,0,.55); border:1px solid #3a2417; border-radius:3px; overflow:hidden; }
+.barra-relleno{ height:100%; background:linear-gradient(90deg,#7a1616,#c73b3b); transition:width .25s ease; }
+
+#mensaje-flotante{
+  position:absolute; top:38%; left:50%; transform:translate(-50%,-50%);
+  font-size:34px; color:var(--oro); text-align:center; letter-spacing:2px;
+  text-shadow:0 4px 18px rgba(0,0,0,.8);
+  opacity:0; pointer-events:none;
+}
+#mensaje-flotante.mostrar{ animation: destello-mensaje 1.9s ease-out forwards; }
+@keyframes destello-mensaje{
+  0%{opacity:0; transform:translate(-50%,-40%) scale(.9);}
+  15%{opacity:1; transform:translate(-50%,-50%) scale(1);}
+  80%{opacity:1;}
+  100%{opacity:0; transform:translate(-50%,-58%) scale(1.05);}
+}
+
+#destello-dano{ position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(140,20,20,0) 40%, rgba(140,20,20,.55) 100%); opacity:0; pointer-events:none; z-index:11; }
+#destello-dano.activo{ animation: parpadeo-dano .45s ease-out; }
+@keyframes parpadeo-dano{ 0%{opacity:1;} 100%{opacity:0;} }
+
+/* Retícula de apuntado (modo escritorio) */
+#retícula{
+  position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px;
+  border:2px solid var(--azul-lagrima); border-radius:50%; pointer-events:none; z-index:9;
+  box-shadow:0 0 8px rgba(111,179,217,.7);
+}
+
+/* Indicador de ayuda de gestos (VR) */
+#pista-gesto{
+  position:absolute; bottom:22px; left:50%; transform:translateX(-50%);
+  font-size:13px; color:var(--hueso-tenue); background:rgba(10,7,5,.55);
+  padding:8px 16px; border-radius:20px; border:1px solid var(--panel-borde);
+  opacity:0; transition:opacity .4s ease;
+}
+#pista-gesto.visible{ opacity:1; }
+
+/* Botón flotante de pausa (escritorio/táctil) */
+#boton-pausa-flotante{
+  position:absolute; top:16px; right:16px; z-index:12; pointer-events:auto;
+  background:rgba(20,13,9,.6); border:1px solid var(--panel-borde); color:var(--hueso-tenue);
+  width:38px; height:38px; border-radius:50%; cursor:pointer; font-size:16px;
+  display:none;
+}
+#boton-pausa-flotante.visible{ display:block; }
+
+/* Aviso de compatibilidad */
+#aviso-compatibilidad{
+  position:absolute; bottom:10px; left:10px; font-size:11px; color:var(--hueso-tenue);
+  opacity:.55; max-width:260px; z-index:5; pointer-events:none;
+}
+
+@media (max-width:600px){
+  .panel{ padding:26px 20px; }
+  .boton-hueso{ min-width:0; width:100%; }
+}
+</style>
+</head>
+<body>
+
+<div id="contenedor-juego">
+
+  <!-- Lienzo donde Three.js dibuja la escena 3D -->
+  <canvas id="lienzo-juego"></canvas>
+
+  <!-- ============================ PANTALLA: MENÚ PRINCIPAL ============================ -->
+  <div id="pantalla-menu" class="pantalla">
+    <div class="panel">
+      <h1 class="titulo-gotico" style="font-size:42px; margin:0;">EL SÓTANO</h1>
+      <p class="subtitulo">Un descenso interactivo en 3D — controla todo con tus manos</p>
+      <button class="boton-hueso" id="btn-jugar">Comenzar el descenso</button><br/>
+      <button class="boton-hueso secundario" id="btn-instrucciones">Instrucciones</button><br/>
+      <button class="boton-hueso secundario" id="btn-entrar-vr" style="display:none;">Entrar en Realidad Virtual</button>
+      <p id="aviso-vr-menu" style="font-size:12px;color:var(--hueso-tenue);margin-top:14px;"></p>
+    </div>
+  </div>
+
+  <!-- ============================ PANTALLA: INSTRUCCIONES ============================ -->
+  <div id="pantalla-instrucciones" class="pantalla oculto">
+    <div class="panel" style="max-width:620px;">
+      <h2 class="titulo-gotico" style="font-size:26px;margin:0 0 4px;">CÓMO JUGAR</h2>
+      <p class="subtitulo">Elige tu forma de control</p>
+
+      <b style="color:var(--oro);font-size:13px;letter-spacing:1px;">🖐️ REALIDAD VIRTUAL — SEGUIMIENTO DE MANOS</b>
+      <div class="lista-controles" style="margin-top:10px;">
+        <div class="fila-control"><span class="icono-gesto">👉</span><span><b>Señalar</b> con la mano derecha para apuntar tus lágrimas.</span></div>
+        <div class="fila-control"><span class="icono-gesto">🤏</span><span><b>Pellizcar</b> (pulgar + índice) con la derecha para disparar.</span></div>
+        <div class="fila-control"><span class="icono-gesto">🤏➡️</span><span><b>Pellizcar y arrastrar</b> con la mano izquierda para moverte (joystick virtual). Suelta el pellizco para detenerte.</span></div>
+        <div class="fila-control"><span class="icono-gesto">✋</span><span><b>Mano abierta</b> mantenida un instante: pausa el juego.</span></div>
+        <div class="fila-control"><span class="icono-gesto">👐</span><span><b>Separar las manos</b> rápido: Explosión de Ira (empuja y daña enemigos cercanos).</span></div>
+        <div class="fila-control"><span class="icono-gesto">🤲</span><span><b>Acercar las manos</b> rápido: Imán — atrae monedas y corazones cercanos.</span></div>
+      </div>
+
+      <hr class="divisor-instrucciones"/>
+
+      <b style="color:var(--oro);font-size:13px;letter-spacing:1px;">🖱️ COMPUTADOR — MOUSE Y TECLADO</b>
+      <div class="lista-controles" style="margin-top:10px;">
+        <div class="fila-control"><span class="icono-gesto">⌨️</span><span><b>W A S D</b> o flechas: moverte por el sótano.</span></div>
+        <div class="fila-control"><span class="icono-gesto">🖱️</span><span><b>Mover el mouse</b>: apuntar.</span></div>
+        <div class="fila-control"><span class="icono-gesto">🖱️</span><span><b>Clic izquierdo</b> (mantener para disparo continuo): lanzar lágrimas.</span></div>
+        <div class="fila-control"><span class="icono-gesto">␣</span><span><b>Barra espaciadora</b>: Explosión de Ira (con recarga).</span></div>
+        <div class="fila-control"><span class="icono-gesto">⏸</span><span><b>Esc</b> o <b>P</b>: pausar.</span></div>
+      </div>
+
+      <p class="subtitulo" style="margin-top:16px;">Elimina todas las oleadas de cada nivel, recoge corazones y monedas, y sobrevive al jefe final.</p>
+      <button class="boton-hueso" id="btn-volver-menu-instrucciones">Volver</button>
+    </div>
+  </div>
+
+  <!-- ============================ PANTALLA: PAUSA ============================ -->
+  <div id="pantalla-pausa" class="pantalla oculto">
+    <div class="panel">
+      <h2 class="titulo-gotico" style="font-size:30px;margin:0;">EN PAUSA</h2>
+      <p class="subtitulo">Recupera el aliento en la oscuridad</p>
+      <button class="boton-hueso" id="btn-reanudar">Reanudar</button><br/>
+      <button class="boton-hueso secundario" id="btn-reiniciar-pausa">Reiniciar partida</button><br/>
+      <button class="boton-hueso secundario" id="btn-salir-menu">Salir al menú principal</button>
+    </div>
+  </div>
+
+  <!-- ============================ PANTALLA: FIN DE PARTIDA ============================ -->
+  <div id="pantalla-fin" class="pantalla oculto">
+    <div class="panel">
+      <h2 class="titulo-gotico" id="titulo-fin" style="font-size:34px;margin:0;">HAS CAÍDO</h2>
+      <p class="subtitulo" id="subtitulo-fin">El sótano te ha reclamado.</p>
+      <div style="margin:18px 0 26px; font-size:15px; color:var(--hueso-tenue); line-height:2;">
+        Puntuación final: <b style="color:var(--oro);" id="fin-puntuacion">0</b><br/>
+        Nivel alcanzado: <b style="color:var(--oro);" id="fin-nivel">1</b><br/>
+        Tiempo de supervivencia: <b style="color:var(--oro);" id="fin-tiempo">0:00</b>
+      </div>
+      <button class="boton-hueso" id="btn-reintentar">Reintentar</button><br/>
+      <button class="boton-hueso secundario" id="btn-fin-menu">Menú principal</button>
+    </div>
+  </div>
+
+  <!-- ============================ HUD DE JUEGO ============================ -->
+  <div id="hud">
+    <div class="hud-esquina" id="hud-corazones"></div>
+    <div class="hud-esquina" id="hud-derecha">
+      <div>Puntos<br/><b id="hud-puntos">0</b></div>
+      <div>Monedas<br/><b id="hud-monedas">0</b></div>
+      <div>Tiempo<br/><b id="hud-tiempo">0:00</b></div>
+    </div>
+    <div id="hud-nivel"><span id="hud-nivel-nombre">NIVEL 1</span><b id="hud-oleada">Oleada 1/1</b></div>
+    <div id="barra-jefe">
+      <div class="nombre-jefe" id="nombre-jefe">EL PIE DE MAMÁ</div>
+      <div class="barra-fondo"><div class="barra-relleno" id="barra-jefe-relleno" style="width:100%"></div></div>
+    </div>
+    <div id="mensaje-flotante"></div>
+    <div id="pista-gesto"></div>
+  </div>
+
+  <div id="retícula" style="display:none;"></div>
+  <div id="destello-dano"></div>
+  <button id="boton-pausa-flotante" title="Pausa">⏸</button>
+  <div id="aviso-compatibilidad"></div>
+
+</div>
+
+<!-- Three.js (r128) servido desde cdnjs, permitido en este entorno -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+/* ============================================================================================
+   EL SÓTANO — Juego 3D de supervivencia inspirado en "The Binding of Isaac"
+   Motor: Three.js + WebXR (seguimiento de manos) + modo escritorio (mouse/teclado)
+   Idioma del código y comentarios: español.
+
+   ------------------------------------------------------------------------------------------
+   GUÍA DE REUTILIZACIÓN (cómo convertir esto en OTRO tipo de juego)
+   ------------------------------------------------------------------------------------------
+   Toda la "personalidad" del juego vive en el objeto CONFIG de abajo. El MOTOR (más abajo,
+   secciones 4 en adelante) es genérico: mueve entidades, detecta colisiones por distancia,
+   dispara proyectiles, gestiona oleadas/niveles, dificultad progresiva, HUD y las dos formas
+   de control (manos VR / mouse-teclado). Para reusar esta misma base en otro género:
+
+     • JUEGO MUSICAL / RITMO:  cambia "enemigos" por "notas" que caen desde distintos ángulos;
+       en vez de "disparar lágrimas" usa el gesto de PELLIZCO como "tocar la nota" al pasar
+       cerca del jugador; el "daño" pasa a ser "fallos" y los "puntos" a "combo".
+     • EDUCATIVO:              los "enemigos" se convierten en tarjetas con preguntas; el
+       gesto de SEÑALAR + PELLIZCO selecciona la respuesta correcta que aparece a tu alrededor.
+     • DEPORTIVO:              los "proyectiles" pasan a ser balones/discos y el gesto de
+       AGARRAR + SOLTAR lanza el objeto hacia un aro/portería colocado en el entorno 360°.
+     • MEMORIA:                los "recolectables" se muestran brevemente y se ocultan; el
+       jugador debe TOCARLOS en el orden correcto usando el puntero de la mano.
+     • REACCIÓN:               reduce "cadenciaDisparoMs" y aumenta la velocidad de spawn;
+       la métrica de "vidaMaxima" pasa a ser "intentos".
+     • AVENTURA/EXPLORACIÓN:   sustituye "niveles.oleadas" por "zonas" que se activan al
+       caminar (mover con la mano) hacia un punto cardinal del entorno de 360°.
+     • SIMULACIÓN:             reemplaza "enemigos" por "variables" que hay que "ajustar"
+       agarrándolas y girándolas (el gesto de GIRO ya está implementado, ver sección 7).
+
+   En todos los casos NO hace falta tocar el motor: basta con editar CONFIG (colores, formas,
+   nombres, cantidades, reglas de victoria/derrota) y, si se desea, las funciones "fábrica de
+   modelos 3D" de la sección 5 para cambiar el aspecto de cada entidad.
+   ============================================================================================ */
+
+
+/* ============================================================================================
+   1. CONFIGURACIÓN DEL JUEGO — edita aquí para retemar el juego sin tocar el motor
+   ============================================================================================ */
+const CONFIG = {
+
+  meta: {
+    titulo: "El Sótano",
+    version: "1.0.0"
+  },
+
+  entorno: {
+    radioArena: 8.2,          // radio del sótano circular (metros)
+    alturaMuro: 4.2,
+    colorSuelo: 0x2a2018,
+    colorMuro: 0x1c130d,
+    colorNiebla: 0x070403,
+    nieblaCerca: 3,
+    nieblaLejos: 17,
+    numeroAntorchas: 6
+  },
+
+  jugador: {
+    vidaMaxima: 6,             // 6 medios-corazones = 3 corazones enteros
+    velocidad: 3.4,            // metros/segundo
+    radioColision: 0.34,
+    cadenciaDisparoMs: 250,
+    danoLagrima: 1,
+    invulnerabilidadMs: 900,
+    radioRecoleccion: 0.9
+  },
+
+  lagrima: {
+    velocidad: 9.5,
+    radio: 0.09,
+    alcanceMax: 11,
+    color: 0x8fd0f2
+  },
+
+  habilidadesEspeciales: {
+    explosionIra: { radio: 3.2, dano: 4, empuje: 6, cooldownMs: 5000 },
+    iman:         { radio: 4.5, duracionMs: 900, cooldownMs: 4500 }
+  },
+
+  // ---- Catálogo de enemigos (usado por las oleadas de cada nivel) ----
+  tiposEnemigo: {
+    mosca:  { nombre:"Mosca Roja",     vidaBase:2, velocidadBase:1.7, danoBase:1, puntos:50,  color:0x8a2323, escala:0.34, forma:"mosca"  },
+    arania: { nombre:"Araña Ósea",     vidaBase:3, velocidadBase:2.2, danoBase:1, puntos:80,  color:0xdad2bd, escala:0.30, forma:"arania" },
+    gordo:  { nombre:"Gordo Podrido",  vidaBase:5, velocidadBase:1.0, danoBase:2, puntos:120, color:0x4c5a2c, escala:0.52, forma:"gordo"  }
+  },
+
+  jefe: {
+    nombre:"El Pie de Mamá", vidaBase:70, danoBase:3, puntos:2500,
+    color:0xb9906a, escala:1.0, ataqueCooldownMs:3400, radioPisoton:3.4, danoPisoton:2
+  },
+
+  recolectables: {
+    corazon:      { cura:2,   color:0xc21e1e, chanceSpawn:0.5 },
+    moneda:       { puntos:25, color:0xe9c14e, chanceSpawn:0.85 },
+    potenciador:  { duracionMs:8000, color:0x5fb0e8, chanceSpawn:0.18 }
+  },
+
+  // ---- Niveles: cada oleada es un diccionario {tipoEnemigo: cantidad} ----
+  niveles: [
+    { nombre:"El Sótano",     oleadas:[ {mosca:4}, {mosca:3, arania:2} ],                 jefeFinal:false },
+    { nombre:"La Cueva",      oleadas:[ {arania:4, gordo:1}, {mosca:5, arania:2} ],        jefeFinal:false },
+    { nombre:"La Guarida",    oleadas:[ {gordo:2, arania:3, mosca:3} ],                    jefeFinal:true  }
+  ],
+
+  dificultad: {
+    incrementoVidaPorNivel:      0.22,
+    incrementoVelocidadPorNivel: 0.10
+  },
+
+  controlesVR: {
+    manoDominante: "right",     // 'right' o 'left' — mano que apunta y dispara
+    umbralPellizco: 0.028,      // metros entre pulgar e índice para considerar "pellizco"
+    umbralManoAbierta: 0.09,    // distancia mínima punta-dedo/muñeca para "mano abierta"
+    tiempoManoAbiertaPausaMs: 1100,
+    umbralVelocidadSepararManos: 1.6,  // m/s de separación entre muñecas -> Explosión de Ira
+    umbralVelocidadAcercarManos: 1.6   // m/s de acercamiento entre muñecas -> Imán
+  },
+
+  audio: { volumenGeneral: 0.35 }
+};
+
+
+/* ============================================================================================
+   2. ESTADO GLOBAL DEL JUEGO
+   ============================================================================================ */
+const estado = {
+  escenaActual: "menu",      // 'menu' | 'instrucciones' | 'jugando' | 'pausa' | 'fin'
+  modoControl: "escritorio", // 'escritorio' | 'vr'
+  nivelIndice: 0,
+  oleadaIndice: 0,
+  enemigosVivosOleada: 0,
+  jefeActivo: false,
+  jefeDerrotado: false,
+  puntuacion: 0,
+  monedas: 0,
+  vida: CONFIG.jugador.vidaMaxima,
+  invulnerableHasta: 0,
+  tiempoTranscurrido: 0,
+  ultimoDisparoMs: 0,
+  cadenciaActual: CONFIG.jugador.cadenciaDisparoMs,
+  velocidadActual: CONFIG.jugador.velocidad,
+  cooldownIraHasta: 0,
+  cooldownImanHasta: 0,
+  imanActivoHasta: 0,
+  transicionando: false,
+  resultado: null // 'victoria' | 'derrota'
+};
+
+// Colecciones activas en la escena 3D
+const enemigos = [];
+const proyectiles = [];
+const recolectables = [];
+const particulas = [];
+let jefe = null;
+
+
+/* ============================================================================================
+   3. UTILIDADES: audio procedural y matemáticas
+   ============================================================================================ */
+
+// ---- Motor de audio con osciladores (sin archivos externos) ----
+class MotorAudio {
+  constructor(){
+    this.contexto = null;
+    this.iniciado = false;
+  }
+  asegurarContexto(){
+    if (!this.contexto){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.contexto = new AC();
+    }
+    if (this.contexto.state === "suspended") this.contexto.resume();
+    this.iniciado = true;
+  }
+  tono(frecuencia, duracion, tipo, volumen, deslizarA){
+    if (!this.iniciado) return;
+    const ctx = this.contexto;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = tipo || "sine";
+    osc.frequency.setValueAtTime(frecuencia, ctx.currentTime);
+    if (deslizarA) osc.frequency.exponentialRampToValueAtTime(Math.max(1,deslizarA), ctx.currentTime + duracion);
+    const vol = (volumen ?? 0.3) * CONFIG.audio.volumenGeneral;
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duracion);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duracion + 0.02);
+  }
+  ruido(duracion, volumen){
+    if (!this.iniciado) return;
+    const ctx = this.contexto;
+    const muestras = ctx.sampleRate * duracion;
+    const buffer = ctx.createBuffer(1, muestras, ctx.sampleRate);
+    const datos = buffer.getChannelData(0);
+    for (let i=0;i<muestras;i++) datos[i] = (Math.random()*2-1) * (1 - i/muestras);
+    const fuente = ctx.createBufferSource();
+    fuente.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = (volumen ?? 0.2) * CONFIG.audio.volumenGeneral;
+    fuente.connect(gain).connect(ctx.destination);
+    fuente.start();
+  }
+  disparo(){ this.tono(520,0.09,"triangle",0.18,300); }
+  impacto(){ this.tono(160,0.12,"square",0.2,60); }
+  muerteEnemigo(){ this.ruido(0.18,0.22); this.tono(200,0.2,"sawtooth",0.15,50); }
+  dano(){ this.tono(120,0.28,"sawtooth",0.32,40); }
+  recolectar(){ this.tono(700,0.09,"sine",0.22,1000); }
+  potenciador(){ this.tono(500,0.12,"sine",0.25,1200); setTimeout(()=>this.tono(750,0.15,"sine",0.2,1400),90); }
+  oleadaSuperada(){ this.tono(440,0.14,"triangle",0.25,660); setTimeout(()=>this.tono(660,0.18,"triangle",0.22,880),130); }
+  victoria(){ [440,554,659,880].forEach((f,i)=> setTimeout(()=>this.tono(f,0.35,"triangle",0.25),i*150)); }
+  derrota(){ this.tono(220,0.6,"sawtooth",0.3,60); }
+  habilidad(){ this.ruido(0.3,0.25); this.tono(300,0.35,"sine",0.2,700); }
+  pasoJefe(){ this.tono(80,0.25,"square",0.3,40); }
+}
+const audio = new MotorAudio();
+
+// ---- Matemáticas / helpers ----
+function aleatorioEntre(min,max){ return min + Math.random()*(max-min); }
+function distanciaXZ(a,b){ const dx=a.x-b.x, dz=a.z-b.z; return Math.sqrt(dx*dx+dz*dz); }
+function anguloAleatorio(){ return Math.random()*Math.PI*2; }
+function formatoTiempo(seg){
+  const m = Math.floor(seg/60), s = Math.floor(seg%60);
+  return m + ":" + String(s).padStart(2,"0");
+}
+function limitarArena(pos, margen){
+  const r = CONFIG.entorno.radioArena - (margen||0.3);
+  const d = Math.sqrt(pos.x*pos.x + pos.z*pos.z);
+  if (d > r){ const f = r/d; pos.x *= f; pos.z *= f; }
+}
+
+
+/* ============================================================================================
+   4. THREE.JS: escena, cámara, renderer, luces y entorno inmersivo de 360°
+   ============================================================================================ */
+let escena, camara, renderer, reloj;
+let grupoJugadorEscritorio;   // referencia visual del jugador (solo se ve en modo escritorio)
+let objetivoCamara = new THREE.Vector3(0,1.6,0);
+
+function crearTexturaSuelo(){
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#221912"; ctx.fillRect(0,0,256,256);
+  for (let i=0;i<40;i++){
+    ctx.fillStyle = `rgba(${20+Math.random()*20},${14+Math.random()*14},${8+Math.random()*10},0.6)`;
+    const x=Math.random()*256, y=Math.random()*256, s=10+Math.random()*40;
+    ctx.fillRect(x,y,s,s*0.6);
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth=2;
+  for (let i=0;i<=256;i+=32){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(9,9);
+  return tex;
+}
+
+function crearTexturaMuro(){
+  const c = document.createElement("canvas"); c.width=128; c.height=128;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#150e09"; ctx.fillRect(0,0,128,128);
+  for (let i=0;i<70;i++){
+    ctx.fillStyle = `rgba(${10+Math.random()*15},${6+Math.random()*10},${4+Math.random()*8},0.5)`;
+    ctx.fillRect(Math.random()*128, Math.random()*128, 1+Math.random()*3, 4+Math.random()*30);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(14,3);
+  return tex;
+}
+
+function iniciarEscena3D(){
+  reloj = new THREE.Clock();
+  escena = new THREE.Scene();
+  escena.fog = new THREE.Fog(CONFIG.entorno.colorNiebla, CONFIG.entorno.nieblaCerca, CONFIG.entorno.nieblaLejos);
+
+  const lienzo = document.getElementById("lienzo-juego");
+  renderer = new THREE.WebGLRenderer({ canvas:lienzo, antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.xr.enabled = true;
+
+  camara = new THREE.PerspectiveCamera(62, window.innerWidth/window.innerHeight, 0.05, 60);
+  camara.position.set(0, 4.6, 5.4);
+
+  // ---- Iluminación tenue de sótano ----
+  escena.add(new THREE.AmbientLight(0x2a1f18, 0.55));
+  const luzHemisferio = new THREE.HemisphereLight(0x3a2f22, 0x0a0603, 0.35);
+  escena.add(luzHemisferio);
+
+  // ---- Suelo circular ----
+  const suelo = new THREE.Mesh(
+    new THREE.CircleGeometry(CONFIG.entorno.radioArena, 48),
+    new THREE.MeshStandardMaterial({ map:crearTexturaSuelo(), roughness:0.95, metalness:0.05 })
+  );
+  suelo.rotation.x = -Math.PI/2;
+  escena.add(suelo);
+
+  // ---- Muro circular (entorno 360°) ----
+  const muro = new THREE.Mesh(
+    new THREE.CylinderGeometry(CONFIG.entorno.radioArena+0.15, CONFIG.entorno.radioArena+0.15, CONFIG.entorno.alturaMuro, 40, 1, true),
+    new THREE.MeshStandardMaterial({ map:crearTexturaMuro(), side:THREE.BackSide, roughness:1 })
+  );
+  muro.position.y = CONFIG.entorno.alturaMuro/2 - 0.05;
+  escena.add(muro);
+
+  // ---- Techo oscuro ----
+  const techo = new THREE.Mesh(
+    new THREE.CircleGeometry(CONFIG.entorno.radioArena+0.2, 32),
+    new THREE.MeshStandardMaterial({ color:0x050302, side:THREE.BackSide })
+  );
+  techo.rotation.x = Math.PI/2;
+  techo.position.y = CONFIG.entorno.alturaMuro;
+  escena.add(techo);
+
+  // ---- Antorchas alrededor de todo el perímetro (360°) ----
+  window.__llamas = [];
+  for (let i=0;i<CONFIG.entorno.numeroAntorchas;i++){
+    const ang = (i/CONFIG.entorno.numeroAntorchas) * Math.PI*2;
+    const r = CONFIG.entorno.radioArena - 0.35;
+    const x = Math.cos(ang)*r, z = Math.sin(ang)*r;
+
+    const poste = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,1.4,6), new THREE.MeshStandardMaterial({color:0x1a1108}));
+    poste.position.set(x, 0.7, z);
+    escena.add(poste);
+
+    const llama = new THREE.PointLight(0xff7a30, 1.4, 6, 2);
+    llama.position.set(x, 1.55, z);
+    escena.add(llama);
+    window.__llamas.push({ luz:llama, fase:Math.random()*10 });
+
+    const nucleoLlama = new THREE.Mesh(new THREE.ConeGeometry(0.07,0.22,6), new THREE.MeshBasicMaterial({color:0xffb347}));
+    nucleoLlama.position.set(x,1.6,z);
+    escena.add(nucleoLlama);
+  }
+
+  // ---- Luz cenital tenue sobre el centro de la arena ----
+  const luzCentral = new THREE.PointLight(0x9a8060, 0.6, 14, 2);
+  luzCentral.position.set(0, CONFIG.entorno.alturaMuro-0.3, 0);
+  escena.add(luzCentral);
+
+  // ---- Modelo visible del jugador (solo se dibuja en modo escritorio) ----
+  grupoJugadorEscritorio = crearModeloJugador();
+  escena.add(grupoJugadorEscritorio);
+
+  window.addEventListener("resize", alRedimensionar);
+}
+
+function alRedimensionar(){
+  camara.aspect = window.innerWidth/window.innerHeight;
+  camara.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+
+/* ============================================================================================
+   5. FÁBRICAS DE MODELOS 3D — cambia estas funciones para retemar el aspecto del juego
+   ============================================================================================ */
+
+function crearModeloJugador(){
+  const g = new THREE.Group();
+  const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.26,16,16), new THREE.MeshStandardMaterial({color:0xf0c9a0, roughness:0.7}));
+  cabeza.position.y = 1.08;
+  g.add(cabeza);
+  [-0.09,0.09].forEach(dx=>{
+    const ojo = new THREE.Mesh(new THREE.SphereGeometry(0.045,8,8), new THREE.MeshBasicMaterial({color:0x0a0705}));
+    ojo.position.set(dx,1.1,0.22);
+    g.add(ojo);
+  });
+  const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,0.62,10), new THREE.MeshStandardMaterial({color:0xe8dcc3, roughness:0.8}));
+  cuerpo.position.y = 0.66;
+  g.add(cuerpo);
+  g.visible = false; // se activa solo en modo escritorio
+  return g;
+}
+
+function crearModeloEnemigo(tipo){
+  const cfg = CONFIG.tiposEnemigo[tipo];
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color:cfg.color, roughness:0.75 });
+
+  if (cfg.forma === "mosca"){
+    const cuerpo = new THREE.Mesh(new THREE.SphereGeometry(1,10,10), mat);
+    g.add(cuerpo);
+    const matAla = new THREE.MeshStandardMaterial({color:0xd8d8d8, transparent:true, opacity:0.55, side:THREE.DoubleSide});
+    for (const s of [-1,1]){
+      const ala = new THREE.Mesh(new THREE.PlaneGeometry(1.1,0.5), matAla);
+      ala.position.set(s*0.6,0.3,0);
+      ala.rotation.y = s*0.5;
+      ala.userData.esAla = true; ala.userData.lado = s;
+      g.add(ala);
+    }
+  } else if (cfg.forma === "arania"){
+    const cuerpo = new THREE.Mesh(new THREE.SphereGeometry(1,10,10), mat);
+    cuerpo.scale.set(1,0.75,1.1);
+    g.add(cuerpo);
+    const matPata = new THREE.MeshStandardMaterial({color:0x2a2a24});
+    for (let i=0;i<6;i++){
+      const ang = (i/6)*Math.PI*2;
+      const pata = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.3,5), matPata);
+      pata.position.set(Math.cos(ang)*0.9,-0.2,Math.sin(ang)*0.9);
+      pata.rotation.z = Math.cos(ang)*0.9;
+      pata.rotation.x = Math.sin(ang)*0.9;
+      pata.userData.esPata = true; pata.userData.indice = i;
+      g.add(pata);
+    }
+  } else if (cfg.forma === "gordo"){
+    const cuerpo = new THREE.Mesh(new THREE.SphereGeometry(1,12,12), mat);
+    cuerpo.scale.set(1.1,0.85,1.1);
+    g.add(cuerpo);
+    for (let i=0;i<5;i++){
+      const mancha = new THREE.Mesh(new THREE.SphereGeometry(0.16,6,6), new THREE.MeshStandardMaterial({color:0x2a3316}));
+      mancha.position.set(aleatorioEntre(-0.7,0.7), aleatorioEntre(0,0.5), aleatorioEntre(-0.7,0.7));
+      g.add(mancha);
+    }
+  } else {
+    const cuerpo = new THREE.Mesh(new THREE.SphereGeometry(1,10,10), mat);
+    g.add(cuerpo);
+  }
+
+  g.scale.setScalar(cfg.escala);
+  g.userData.animOffset = Math.random()*10;
+  return g;
+}
+
+function crearModeloJefe(){
+  const g = new THREE.Group();
+  const matPiel = new THREE.MeshStandardMaterial({ color:CONFIG.jefe.color, roughness:0.7 });
+  const pierna = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.62,2.4,14), matPiel);
+  pierna.position.y = 1.6;
+  g.add(pierna);
+  const pie = new THREE.Mesh(new THREE.BoxGeometry(1.3,0.5,1.9), matPiel);
+  pie.position.set(0,0.25,0.35);
+  g.add(pie);
+  for (let i=0;i<5;i++){
+    const una = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.14,0.28), new THREE.MeshStandardMaterial({color:0xe8dcc3}));
+    una.position.set(-0.5+i*0.25, 0.32, 1.25);
+    g.add(una);
+  }
+  const marcaAnillo = new THREE.Mesh(
+    new THREE.RingGeometry(CONFIG.jefe.radioPisoton-0.08, CONFIG.jefe.radioPisoton, 32),
+    new THREE.MeshBasicMaterial({ color:0xc73b3b, transparent:true, opacity:0, side:THREE.DoubleSide })
+  );
+  marcaAnillo.rotation.x = -Math.PI/2;
+  marcaAnillo.position.y = 0.02;
+  g.add(marcaAnillo);
+  g.userData.anillo = marcaAnillo;
+  return g;
+}
+
+function crearModeloLagrima(){
+  const mat = new THREE.MeshStandardMaterial({ color:CONFIG.lagrima.color, transparent:true, opacity:0.9, emissive:0x2a5a75, emissiveIntensity:0.6 });
+  return new THREE.Mesh(new THREE.SphereGeometry(CONFIG.lagrima.radio,8,8), mat);
+}
+
+function crearModeloRecolectable(tipo){
+  const g = new THREE.Group();
+  if (tipo === "corazon"){
+    const forma = new THREE.Shape();
+    forma.moveTo(0,0.28); forma.bezierCurveTo(0,0.45,-0.3,0.5,-0.32,0.2); forma.bezierCurveTo(-0.34,-0.05,0,-0.2,0,-0.4);
+    forma.bezierCurveTo(0,-0.2,0.34,-0.05,0.32,0.2); forma.bezierCurveTo(0.3,0.5,0,0.45,0,0.28);
+    const geo = new THREE.ExtrudeGeometry(forma,{depth:0.12,bevelEnabled:true,bevelSize:0.02,bevelThickness:0.02});
+    const malla = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:CONFIG.recolectables.corazon.color, emissive:0x4a0808, emissiveIntensity:0.4}));
+    malla.scale.setScalar(0.55);
+    g.add(malla);
+  } else if (tipo === "moneda"){
+    const malla = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.05,16), new THREE.MeshStandardMaterial({color:CONFIG.recolectables.moneda.color, metalness:0.6, roughness:0.3}));
+    malla.rotation.x = Math.PI/2;
+    g.add(malla);
+  } else {
+    const malla = new THREE.Mesh(new THREE.OctahedronGeometry(0.24,0), new THREE.MeshStandardMaterial({color:CONFIG.recolectables.potenciador.color, emissive:0x123a55, emissiveIntensity:0.7}));
+    g.add(malla);
+  }
+  g.position.y = 0.45;
+  return g;
+}
+
+function crearSpriteTexto(texto, color){
+  const c = document.createElement("canvas"); c.width=256; c.height=64;
+  const ctx = c.getContext("2d");
+  ctx.font = "bold 40px Georgia";
+  ctx.fillStyle = color || "#e8dcc3";
+  ctx.textAlign = "center";
+  ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 6;
+  ctx.fillText(texto,128,42);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.1,0.28,1);
+  return sprite;
+}
+
+
+/* ============================================================================================
+   6. ENTRADA — MODO ESCRITORIO (mouse / teclado)
+   ============================================================================================ */
+const entradaEscritorio = {
+  teclas: {},
+  mouseNDC: new THREE.Vector2(0,0),
+  disparando: false,
+  planoSuelo: new THREE.Plane(new THREE.Vector3(0,1,0), 0),
+  puntoApuntado: new THREE.Vector3(0,0,-1),
+  raycaster: new THREE.Raycaster()
+};
+
+function configurarEntradaEscritorio(){
+  window.addEventListener("keydown", e=>{
+    entradaEscritorio.teclas[e.code] = true;
+    if (e.code === "Escape" || e.code === "KeyP"){ alternarPausa(); }
+    if (e.code === "Space"){ intentarHabilidadIra(); e.preventDefault(); }
+  });
+  window.addEventListener("keyup", e=> entradaEscritorio.teclas[e.code] = false );
+
+  const lienzo = document.getElementById("lienzo-juego");
+  lienzo.addEventListener("mousemove", e=>{
+    entradaEscritorio.mouseNDC.x = (e.clientX/window.innerWidth)*2-1;
+    entradaEscritorio.mouseNDC.y = -(e.clientY/window.innerHeight)*2+1;
+    const ret = document.getElementById("retícula");
+    ret.style.left = e.clientX+"px";
+    ret.style.top  = e.clientY+"px";
+  });
+  lienzo.addEventListener("mousedown", e=>{ if (e.button===0) entradaEscritorio.disparando = true; audio.asegurarContexto(); });
+  window.addEventListener("mouseup", e=>{ if (e.button===0) entradaEscritorio.disparando = false; });
+}
+
+function actualizarPuntoApuntadoEscritorio(){
+  entradaEscritorio.raycaster.setFromCamera(entradaEscritorio.mouseNDC, camara);
+  const punto = new THREE.Vector3();
+  entradaEscritorio.raycaster.ray.intersectPlane(entradaEscritorio.planoSuelo, punto);
+  if (punto) entradaEscritorio.puntoApuntado.copy(punto);
+}
+
+function actualizarEntradaEscritorio(dt){
+  actualizarPuntoApuntadoEscritorio();
+
+  const t = entradaEscritorio.teclas;
+  const mov = new THREE.Vector3(0,0,0);
+  if (t["KeyW"]||t["ArrowUp"])    mov.z -= 1;
+  if (t["KeyS"]||t["ArrowDown"])  mov.z += 1;
+  if (t["KeyA"]||t["ArrowLeft"])  mov.x -= 1;
+  if (t["KeyD"]||t["ArrowRight"]) mov.x += 1;
+  if (mov.lengthSq()>0){
+    mov.normalize().multiplyScalar(estado.velocidadActual*dt);
+    jugador.posicion.x += mov.x;
+    jugador.posicion.z += mov.z;
+    limitarArena(jugador.posicion, CONFIG.jugador.radioColision);
+  }
+
+  // Dirección de disparo = hacia el punto del suelo señalado con el mouse
+  const dir = new THREE.Vector3().subVectors(entradaEscritorio.puntoApuntado, jugador.posicion);
+  dir.y = 0;
+  if (dir.lengthSq() > 0.0001){ dir.normalize(); jugador.direccionApuntado.copy(dir); }
+
+  if (entradaEscritorio.disparando){ intentarDisparar(); }
+}
+
+
+/* ============================================================================================
+   7. ENTRADA — MODO VR: SEGUIMIENTO DE MANOS (WebXR)
+   ============================================================================================ */
+const entradaVR = {
+  soportado: false,
+  sesionActiva: null,
+  espacioReferencia: null,
+
+  // Estado por mano ('left' / 'right')
+  manos: {
+    left:  { activa:false, muñeca:null, pellizcando:false, rayo:null, anterior:null },
+    right: { activa:false, muñeca:null, pellizcando:false, rayo:null, anterior:null }
+  },
+
+  // Joystick virtual (mano no dominante)
+  joystick: { activo:false, origen:new THREE.Vector3(), actual:new THREE.Vector3() },
+
+  // Detección de "mano abierta" para pausa
+  manoAbiertaDesde: 0,
+
+  // Última distancia entre muñecas, para detectar gestos de acercar/separar
+  distanciaManosAnterior: null
+};
+
+function manoSecundaria(){ return CONFIG.controlesVR.manoDominante === "right" ? "left" : "right"; }
+
+async function comprobarSoporteVR(){
+  if (navigator.xr){
+    try{
+      entradaVR.soportado = await navigator.xr.isSessionSupported("immersive-vr");
+    }catch(e){ entradaVR.soportado = false; }
+  }
+  const btn = document.getElementById("btn-entrar-vr");
+  const aviso = document.getElementById("aviso-vr-menu");
+  if (entradaVR.soportado){
+    btn.style.display = "inline-block";
+    aviso.textContent = "Se detectó un dispositivo compatible con Realidad Virtual.";
+  } else {
+    aviso.textContent = "No se detectó un casco VR: se usará el modo escritorio (mouse y teclado).";
+  }
+}
+
+async function entrarEnVR(){
+  audio.asegurarContexto();
+  try{
+    const sesion = await navigator.xr.requestSession("immersive-vr", {
+      requiredFeatures: ["local-floor"],
+      optionalFeatures: ["hand-tracking", "dom-overlay"],
+      domOverlay: { root: document.getElementById("contenedor-juego") }
+    });
+    entradaVR.sesionActiva = sesion;
+    renderer.xr.setReferenceSpaceType("local-floor");
+    await renderer.xr.setSession(sesion);
+    estado.modoControl = "vr";
+    document.getElementById("retícula").style.display = "none";
+    document.getElementById("boton-pausa-flotante").classList.remove("visible");
+    grupoJugadorEscritorio.visible = false;
+    mostrarPistaGesto("Pellizca con la mano derecha apuntando para disparar");
+
+    sesion.addEventListener("selectstart", alPellizcoIniciar);
+    sesion.addEventListener("selectend", alPellizcoTerminar);
+    sesion.addEventListener("end", ()=>{
+      entradaVR.sesionActiva = null;
+      estado.modoControl = "escritorio";
+      grupoJugadorEscritorio.visible = true;
+      document.getElementById("boton-pausa-flotante").classList.add("visible");
+      if (estado.escenaActual === "jugando") document.getElementById("retícula").style.display = "block";
+    });
+
+    ocultarTodasLasPantallas();
+    if (estado.escenaActual !== "jugando"){ iniciarNuevaPartida(); }
+  }catch(err){
+    console.error("No se pudo iniciar la sesión VR:", err);
+    alert("No fue posible iniciar la Realidad Virtual en este dispositivo/navegador.");
+  }
+}
+
+// El navegador emite 'selectstart'/'selectend' automáticamente al detectar el pellizco
+// de una mano en modo "transient-pointer": es la forma más fiable de capturar el gesto.
+function alPellizcoIniciar(evento){
+  const fuente = evento.inputSource;
+  if (!fuente || !fuente.handedness) return;
+  const esDominante = fuente.handedness === CONFIG.controlesVR.manoDominante;
+
+  if (esDominante){
+    entradaVR.manos[fuente.handedness].pellizcando = true;
+    // Disparo inmediato si estamos jugando; si estamos en un menú (dom-overlay),
+    // el propio navegador ya interpreta el pellizco como clic sobre el botón señalado.
+    if (estado.escenaActual === "jugando" && !estado.transicionando){ intentarDisparar(); }
+  } else {
+    // Mano secundaria: iniciar el "joystick" de movimiento en su posición actual
+    const datos = entradaVR.manos[fuente.handedness];
+    if (datos.muñeca){
+      entradaVR.joystick.activo = true;
+      entradaVR.joystick.origen.copy(datos.muñeca);
+    }
+  }
+}
+function alPellizcoTerminar(evento){
+  const fuente = evento.inputSource;
+  if (!fuente || !fuente.handedness) return;
+  const esDominante = fuente.handedness === CONFIG.controlesVR.manoDominante;
+  if (esDominante){
+    entradaVR.manos[fuente.handedness].pellizcando = false;
+  } else {
+    entradaVR.joystick.activo = false; // "soltar": el jugador deja de moverse
+  }
+}
+
+// Lee las articulaciones de ambas manos en cada fotograma XR (posición del mundo real)
+function actualizarEntradaVR(frame){
+  const sesion = renderer.xr.getSession();
+  if (!sesion || !frame) return;
+  const espacioRef = renderer.xr.getReferenceSpace();
+  if (!espacioRef) return;
+
+  for (const fuente of sesion.inputSources){
+    if (!fuente.hand || !fuente.handedness) continue;
+    const datos = entradaVR.manos[fuente.handedness];
+    datos.activa = true;
+
+    const espacioMuñeca = fuente.hand.get("wrist");
+    if (espacioMuñeca){
+      const pose = frame.getJointPose(espacioMuñeca, espacioRef);
+      if (pose){
+        if (!datos.muñeca) datos.muñeca = new THREE.Vector3();
+        datos.muñeca.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      }
+    }
+
+    // Rayo de apuntado nativo del navegador (disponible también para manos en modo pellizco)
+    if (fuente.targetRaySpace){
+      const poseRayo = frame.getPose(fuente.targetRaySpace, espacioRef);
+      if (poseRayo){
+        const p = poseRayo.transform.position;
+        const o = poseRayo.transform.orientation;
+        if (!datos.rayo) datos.rayo = { pos:new THREE.Vector3(), dir:new THREE.Vector3() };
+        datos.rayo.pos.set(p.x,p.y,p.z);
+        const dir = new THREE.Vector3(0,0,-1).applyQuaternion(new THREE.Quaternion(o.x,o.y,o.z,o.w));
+        datos.rayo.dir.copy(dir);
+      }
+    }
+
+    // Gesto de "mano abierta": comparar dedos extendidos vs muñeca (solo mano dominante -> pausa)
+    if (fuente.handedness === CONFIG.controlesVR.manoDominante){
+      detectarManoAbierta(fuente, frame, espacioRef);
+    }
+  }
+
+  aplicarApuntadoVR();
+  aplicarJoystickVR();
+  detectarGestoDosManos();
+}
+
+function detectarManoAbierta(fuente, frame, espacioRef){
+  const puntas = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"];
+  const espacioMuñeca = fuente.hand.get("wrist");
+  if (!espacioMuñeca) return;
+  const poseMuñeca = frame.getJointPose(espacioMuñeca, espacioRef);
+  if (!poseMuñeca) return;
+  const pM = poseMuñeca.transform.position;
+
+  let dedosExtendidos = 0;
+  for (const nombre of puntas){
+    const esp = fuente.hand.get(nombre);
+    if (!esp) continue;
+    const pose = frame.getJointPose(esp, espacioRef);
+    if (!pose) continue;
+    const p = pose.transform.position;
+    const d = Math.hypot(p.x-pM.x, p.y-pM.y, p.z-pM.z);
+    if (d > CONFIG.controlesVR.umbralManoAbierta) dedosExtendidos++;
+  }
+
+  if (dedosExtendidos >= 4){
+    if (!entradaVR.manoAbiertaDesde) entradaVR.manoAbiertaDesde = performance.now();
+    else if (performance.now() - entradaVR.manoAbiertaDesde > CONFIG.controlesVR.tiempoManoAbiertaPausaMs){
+      entradaVR.manoAbiertaDesde = 0;
+      if (estado.escenaActual === "jugando") alternarPausa();
+    }
+  } else {
+    entradaVR.manoAbiertaDesde = 0;
+  }
+}
+
+// La dirección de apuntado del jugador (para disparar) sigue el rayo de la mano dominante
+function aplicarApuntadoVR(){
+  const dom = entradaVR.manos[CONFIG.controlesVR.manoDominante];
+  if (dom.rayo){
+    const dir = new THREE.Vector3(dom.rayo.dir.x, 0, dom.rayo.dir.z);
+    if (dir.lengthSq() > 0.0001){ dir.normalize(); jugador.direccionApuntado.copy(dir); }
+  }
+}
+
+// El movimiento del jugador sigue el arrastre del pellizco de la mano secundaria (joystick virtual)
+function aplicarJoystickVR(){
+  if (!estado.escenaActual === "jugando") return;
+  const sec = entradaVR.manos[manoSecundaria()];
+  if (entradaVR.joystick.activo && sec.muñeca){
+    const delta = new THREE.Vector3().subVectors(sec.muñeca, entradaVR.joystick.origen);
+    delta.y = 0;
+    const distancia = delta.length();
+    if (distancia > 0.02){
+      const factor = Math.min(distancia/0.18, 1); // cuanto más lejos arrastres, más rápido te mueves
+      const dir = delta.clone().normalize();
+      const dt = 1/72;
+      jugador.posicion.x += dir.x * estado.velocidadActual * factor * dt;
+      jugador.posicion.z += dir.z * estado.velocidadActual * factor * dt;
+      limitarArena(jugador.posicion, CONFIG.jugador.radioColision);
+    }
+  }
+}
+
+// Gesto de acercar/separar ambas manos → habilidades especiales
+function detectarGestoDosManos(){
+  const izq = entradaVR.manos.left.muñeca, der = entradaVR.manos.right.muñeca;
+  if (!izq || !der) return;
+  const distanciaActual = izq.distanceTo(der);
+  if (entradaVR.distanciaManosAnterior != null){
+    const velocidad = (distanciaActual - entradaVR.distanciaManosAnterior) / (1/72);
+    if (velocidad > CONFIG.controlesVR.umbralVelocidadSepararManos){ intentarHabilidadIra(); }
+    else if (velocidad < -CONFIG.controlesVR.umbralVelocidadAcercarManos){ intentarHabilidadIman(); }
+  }
+  entradaVR.distanciaManosAnterior = distanciaActual;
+}
+
+
+/* ============================================================================================
+   8. LÓGICA DEL JUGADOR
+   ============================================================================================ */
+const jugador = {
+  posicion: new THREE.Vector3(0,0,0),
+  direccionApuntado: new THREE.Vector3(0,0,-1)
+};
+
+function reiniciarJugador(){
+  jugador.posicion.set(0,0,0);
+  jugador.direccionApuntado.set(0,0,-1);
+  estado.vida = CONFIG.jugador.vidaMaxima;
+  estado.invulnerableHasta = 0;
+  estado.cadenciaActual = CONFIG.jugador.cadenciaDisparoMs;
+  estado.velocidadActual = CONFIG.jugador.velocidad;
+  estado.ultimoDisparoMs = 0;
+  estado.cooldownIraHasta = 0;
+  estado.cooldownImanHasta = 0;
+  estado.imanActivoHasta = 0;
+}
+
+function actualizarJugador(dt){
+  grupoJugadorEscritorio.position.copy(jugador.posicion);
+  if (jugador.direccionApuntado.lengthSq() > 0.0001){
+    const angulo = Math.atan2(jugador.direccionApuntado.x, jugador.direccionApuntado.z);
+    grupoJugadorEscritorio.rotation.y = angulo;
+  }
+}
+
+function intentarDisparar(){
+  const ahora = performance.now();
+  if (ahora - estado.ultimoDisparoMs < estado.cadenciaActual) return;
+  estado.ultimoDisparoMs = ahora;
+  dispararLagrima();
+}
+
+function dispararLagrima(){
+  const modelo = crearModeloLagrima();
+  const origen = jugador.posicion.clone();
+  origen.y = 0.85;
+  origen.addScaledVector(jugador.direccionApuntado, 0.35);
+  modelo.position.copy(origen);
+  escena.add(modelo);
+  proyectiles.push({
+    malla: modelo,
+    direccion: jugador.direccionApuntado.clone(),
+    distanciaRecorrida: 0
+  });
+  audio.disparo();
+}
+
+function recibirDano(cantidad){
+  const ahora = performance.now();
+  if (ahora < estado.invulnerableHasta) return;
+  estado.vida = Math.max(0, estado.vida - cantidad);
+  estado.invulnerableHasta = ahora + CONFIG.jugador.invulnerabilidadMs;
+  audio.dano();
+  const flash = document.getElementById("destello-dano");
+  flash.classList.remove("activo"); void flash.offsetWidth; flash.classList.add("activo");
+  actualizarHUDCorazones();
+  if (estado.vida <= 0){ terminarPartida("derrota"); }
+}
+
+function intentarHabilidadIra(){
+  const ahora = performance.now();
+  const cfg = CONFIG.habilidadesEspeciales.explosionIra;
+  if (ahora < estado.cooldownIraHasta || estado.escenaActual!=="jugando") return;
+  estado.cooldownIraHasta = ahora + cfg.cooldownMs;
+  audio.habilidad();
+  crearOndaExpansiva(jugador.posicion, cfg.radio, 0xc73b3b);
+  mostrarMensajeFlotante("¡EXPLOSIÓN DE IRA!");
+  [...enemigos, ...(jefe?[jefe]:[])].forEach(en=>{
+    const d = distanciaXZ(en.posicion, jugador.posicion);
+    if (d < cfg.radio){
+      aplicarDanoAEnemigo(en, cfg.dano);
+      const empuje = new THREE.Vector3().subVectors(en.posicion, jugador.posicion).normalize().multiplyScalar(cfg.empuje*0.15);
+      en.posicion.add(empuje);
+      limitarArena(en.posicion, 0.3);
+    }
+  });
+}
+
+function intentarHabilidadIman(){
+  const ahora = performance.now();
+  const cfg = CONFIG.habilidadesEspeciales.iman;
+  if (ahora < estado.cooldownImanHasta || estado.escenaActual!=="jugando") return;
+  estado.cooldownImanHasta = ahora + cfg.cooldownMs;
+  estado.imanActivoHasta = ahora + cfg.duracionMs;
+  audio.potenciador();
+  crearOndaExpansiva(jugador.posicion, cfg.radio, 0x5fb0e8);
+  mostrarMensajeFlotante("¡IMÁN ACTIVADO!");
+}
+
+
+/* ============================================================================================
+   9. ENEMIGOS Y OLEADAS — aparición en 360° alrededor del jugador, dificultad progresiva
+   ============================================================================================ */
+
+function multiplicadorDificultad(){
+  const n = estado.nivelIndice;
+  return {
+    vida: 1 + n*CONFIG.dificultad.incrementoVidaPorNivel,
+    velocidad: 1 + n*CONFIG.dificultad.incrementoVelocidadPorNivel
+  };
+}
+
+function spawnEarEnemigo(tipo){
+  const cfgTipo = CONFIG.tiposEnemigo[tipo];
+  const mult = multiplicadorDificultad();
+
+  // Aparece en un ángulo aleatorio alrededor del jugador — entorno de 360°
+  const angulo = anguloAleatorio();
+  const radio = CONFIG.entorno.radioArena - 0.6;
+  const pos = new THREE.Vector3(Math.cos(angulo)*radio, 0, Math.sin(angulo)*radio);
+
+  const modelo = crearModeloEnemigo(tipo);
+  modelo.position.copy(pos);
+  modelo.position.y = 0.4;
+  escena.add(modelo);
+
+  enemigos.push({
+    tipo, malla: modelo, posicion: pos,
+    vida: cfgTipo.vidaBase * mult.vida,
+    vidaMax: cfgTipo.vidaBase * mult.vida,
+    velocidad: cfgTipo.velocidadBase * mult.velocidad,
+    dano: cfgTipo.danoBase,
+    puntos: cfgTipo.puntos
+  });
+  estado.enemigosVivosOleada++;
+}
+
+function iniciarOleada(){
+  const nivel = CONFIG.niveles[estado.nivelIndice];
+  const oleada = nivel.oleadas[estado.oleadaIndice];
+  estado.enemigosVivosOleada = 0;
+  for (const tipo in oleada){
+    for (let i=0;i<oleada[tipo];i++){ spawnEarEnemigo(tipo); }
+  }
+  actualizarHUDNivel();
+}
+
+function actualizarEnemigos(dt){
+  const t = performance.now()*0.001;
+  for (let i=enemigos.length-1;i>=0;i--){
+    const en = enemigos[i];
+    const dir = new THREE.Vector3().subVectors(jugador.posicion, en.posicion);
+    dir.y = 0;
+    const dist = dir.length();
+    if (dist > 0.001){
+      dir.normalize();
+      en.posicion.addScaledVector(dir, en.velocidad*dt);
+    }
+    en.malla.position.set(en.posicion.x, en.malla.position.y, en.posicion.z);
+    en.malla.rotation.y = Math.atan2(dir.x,dir.z);
+    animarEnemigo(en, t);
+
+    // Colisión con el jugador
+    if (dist < CONFIG.jugador.radioColision + 0.28){
+      recibirDano(en.dano);
+    }
+  }
+}
+
+function animarEnemigo(en, t){
+  const off = en.malla.userData.animOffset || 0;
+  if (en.tipo === "mosca"){
+    en.malla.position.y = 0.5 + Math.sin((t+off)*10)*0.06;
+    en.malla.children.forEach(c=>{ if (c.userData.esAla) c.rotation.z = Math.sin((t+off)*30)*0.6*c.userData.lado; });
+  } else if (en.tipo === "arania"){
+    en.malla.position.y = 0.3 + Math.abs(Math.sin((t+off)*8))*0.05;
+  } else {
+    en.malla.position.y = 0.42 + Math.sin((t+off)*4)*0.03;
+  }
+}
+
+function aplicarDanoAEnemigo(en, cantidad){
+  en.vida -= cantidad;
+  crearParticulasImpacto(en.posicion, en===jefe ? 0xdedede : 0x8c1f1f);
+  audio.impacto();
+  if (en.vida <= 0){ eliminarEnemigo(en); }
+}
+
+function eliminarEnemigo(en){
+  escena.remove(en.malla);
+  if (en === jefe){
+    derrotarJefe();
+    return;
+  }
+  const idx = enemigos.indexOf(en);
+  if (idx>=0) enemigos.splice(idx,1);
+  estado.enemigosVivosOleada--;
+  estado.puntuacion += en.puntos;
+  crearParticulasMuerte(en.posicion);
+  mostrarPuntosFlotantes(en.posicion, "+"+en.puntos);
+  audio.muerteEnemigo();
+  intentarSpawnRecolectable(en.posicion);
+}
+
+
+/* ============================================================================================
+   10. PROYECTILES (lágrimas) — movimiento y colisiones
+   ============================================================================================ */
+function actualizarProyectiles(dt){
+  for (let i=proyectiles.length-1;i>=0;i--){
+    const p = proyectiles[i];
+    const avance = CONFIG.lagrima.velocidad*dt;
+    p.malla.position.addScaledVector(p.direccion, avance);
+    p.distanciaRecorrida += avance;
+
+    let impacto = false;
+
+    const objetivos = jefe ? [...enemigos, jefe] : enemigos;
+    for (const en of objetivos){
+      if (distanciaXZ(p.malla.position, en.posicion) < 0.32){
+        aplicarDanoAEnemigo(en, CONFIG.jugador.danoLagrima);
+        impacto = true;
+        break;
+      }
+    }
+
+    if (impacto || p.distanciaRecorrida > CONFIG.lagrima.alcanceMax || distanciaXZ(p.malla.position,{x:0,z:0}) > CONFIG.entorno.radioArena){
+      escena.remove(p.malla);
+      proyectiles.splice(i,1);
+    }
+  }
+}
+
+
+/* ============================================================================================
+   11. RECOLECTABLES — corazones, monedas y potenciadores
+   ============================================================================================ */
+function intentarSpawnRecolectable(posOrigen){
+  const r = Math.random();
+  let tipo = null;
+  if (r < CONFIG.recolectables.potenciador.chanceSpawn*0.3) tipo = "potenciador";
+  else if (r < 0.55) tipo = "corazon";
+  else if (r < 0.95) tipo = "moneda";
+  if (!tipo) return;
+  crearRecolectable(tipo, posOrigen);
+}
+
+function crearRecolectable(tipo, posOrigen){
+  const modelo = crearModeloRecolectable(tipo);
+  let pos;
+  if (posOrigen){ pos = posOrigen.clone(); }
+  else {
+    const ang = anguloAleatorio(); const r = aleatorioEntre(1.5, CONFIG.entorno.radioArena-1);
+    pos = new THREE.Vector3(Math.cos(ang)*r,0,Math.sin(ang)*r);
+  }
+  modelo.position.x = pos.x; modelo.position.z = pos.z;
+  escena.add(modelo);
+  recolectables.push({ tipo, malla:modelo, posicion:pos, nace:performance.now() });
+}
+
+function actualizarRecolectables(dt){
+  const t = performance.now()*0.001;
+  const imanActivo = performance.now() < estado.imanActivoHasta;
+  for (let i=recolectables.length-1;i>=0;i--){
+    const r = recolectables[i];
+    r.malla.rotation.y = t*1.6;
+    r.malla.position.y = 0.45 + Math.sin(t*2+i)*0.06;
+
+    if (imanActivo){
+      const d = distanciaXZ(r.posicion, jugador.posicion);
+      if (d < CONFIG.habilidadesEspeciales.iman.radio){
+        const dir = new THREE.Vector3().subVectors(jugador.posicion, r.posicion).normalize();
+        r.posicion.addScaledVector(dir, 6*dt);
+        r.malla.position.x = r.posicion.x; r.malla.position.z = r.posicion.z;
+      }
+    }
+
+    if (distanciaXZ(r.posicion, jugador.posicion) < CONFIG.jugador.radioRecoleccion){
+      recolectar(r);
+      escena.remove(r.malla);
+      recolectables.splice(i,1);
+    }
+  }
+}
+
+function recolectar(r){
+  if (r.tipo === "corazon"){
+    estado.vida = Math.min(CONFIG.jugador.vidaMaxima, estado.vida + CONFIG.recolectables.corazon.cura);
+    actualizarHUDCorazones();
+    audio.recolectar();
+  } else if (r.tipo === "moneda"){
+    estado.monedas++;
+    estado.puntuacion += CONFIG.recolectables.moneda.puntos;
+    audio.recolectar();
+  } else {
+    estado.cadenciaActual = Math.max(110, CONFIG.jugador.cadenciaDisparoMs*0.55);
+    estado.velocidadActual = CONFIG.jugador.velocidad*1.35;
+    audio.potenciador();
+    mostrarMensajeFlotante("¡POTENCIADOR!");
+    setTimeout(()=>{
+      estado.cadenciaActual = CONFIG.jugador.cadenciaDisparoMs;
+      estado.velocidadActual = CONFIG.jugador.velocidad;
+    }, CONFIG.recolectables.potenciador.duracionMs);
+  }
+}
+
+
+/* ============================================================================================
+   12. JEFE FINAL
+   ============================================================================================ */
+function invocarJefe(){
+  const mult = multiplicadorDificultad();
+  const modelo = crearModeloJefe();
+  modelo.position.set(0,0,-CONFIG.entorno.radioArena+2.5);
+  escena.add(modelo);
+  jefe = {
+    posicion: modelo.position, malla: modelo,
+    vida: CONFIG.jefe.vidaBase*mult.vida, vidaMax: CONFIG.jefe.vidaBase*mult.vida,
+    velocidad: 0.55*mult.velocidad, dano: CONFIG.jefe.danoBase,
+    proximoAtaque: performance.now()+2000, atacando:false
+  };
+  estado.jefeActivo = true;
+  document.getElementById("barra-jefe").classList.add("visible");
+  document.getElementById("nombre-jefe").textContent = CONFIG.jefe.nombre.toUpperCase();
+  mostrarMensajeFlotante(CONFIG.jefe.nombre.toUpperCase());
+  audio.pasoJefe();
+}
+
+function actualizarJefe(dt){
+  if (!jefe) return;
+  const dir = new THREE.Vector3().subVectors(jugador.posicion, jefe.posicion);
+  dir.y = 0;
+  const dist = dir.length();
+
+  const ahora = performance.now();
+  if (!jefe.atacando){
+    if (dist > 2.2){ dir.normalize(); jefe.posicion.addScaledVector(dir, jefe.velocidad*dt); }
+    jefe.malla.rotation.y = Math.atan2(dir.x,dir.z);
+
+    if (ahora > jefe.proximoAtaque){
+      jefe.atacando = true;
+      jefe.inicioAtaque = ahora;
+      jefe.malla.userData.anillo.material.opacity = 0.85;
+    }
+  } else {
+    const transcurrido = ahora - jefe.inicioAtaque;
+    if (transcurrido > 1100){
+      // Pisotón: daña al jugador si está dentro del radio telegrafiado
+      if (distanciaXZ(jugador.posicion, jefe.posicion) < CONFIG.jefe.radioPisoton){
+        recibirDano(CONFIG.jefe.danoPisoton);
+      }
+      crearOndaExpansiva(jefe.posicion, CONFIG.jefe.radioPisoton, 0xc73b3b);
+      jefe.atacando = false;
+      jefe.malla.userData.anillo.material.opacity = 0;
+      jefe.proximoAtaque = ahora + CONFIG.jefe.ataqueCooldownMs;
+    }
+  }
+
+  jefe.malla.position.y = 0;
+  actualizarBarraJefe();
+}
+
+function derrotarJefe(){
+  estado.jefeActivo = false;
+  estado.jefeDerrotado = true;
+  estado.puntuacion += CONFIG.jefe.puntos;
+  crearParticulasMuerte(jefe.posicion, 26);
+  audio.victoria();
+  document.getElementById("barra-jefe").classList.remove("visible");
+  jefe = null;
+  setTimeout(()=> terminarPartida("victoria"), 900);
+}
+
+function actualizarBarraJefe(){
+  if (!jefe) return;
+  const pct = Math.max(0, jefe.vida/jefe.vidaMax*100);
+  document.getElementById("barra-jefe-relleno").style.width = pct+"%";
+}
+
+
+/* ============================================================================================
+   13. EFECTOS VISUALES — partículas, ondas expansivas, textos flotantes
+   ============================================================================================ */
+function crearParticulasMuerte(pos, cantidad){
+  const n = cantidad || 12;
+  for (let i=0;i<n;i++){
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.06), new THREE.MeshBasicMaterial({color:0x7a1616}));
+    m.position.copy(pos); m.position.y = 0.4;
+    escena.add(m);
+    particulas.push({
+      malla:m,
+      velocidad: new THREE.Vector3(aleatorioEntre(-2,2), aleatorioEntre(1.5,3.5), aleatorioEntre(-2,2)),
+      vida: 0.7
+    });
+  }
+}
+function crearParticulasImpacto(pos, color){
+  for (let i=0;i<4;i++){
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.035,4,4), new THREE.MeshBasicMaterial({color}));
+    m.position.copy(pos); m.position.y = 0.6;
+    escena.add(m);
+    particulas.push({ malla:m, velocidad:new THREE.Vector3(aleatorioEntre(-1.2,1.2),aleatorioEntre(0.5,1.5),aleatorioEntre(-1.2,1.2)), vida:0.35 });
+  }
+}
+function actualizarParticulas(dt){
+  for (let i=particulas.length-1;i>=0;i--){
+    const p = particulas[i];
+    p.velocidad.y -= 6*dt;
+    p.malla.position.addScaledVector(p.velocidad,dt);
+    p.vida -= dt;
+    p.malla.material.opacity = Math.max(0,p.vida);
+    p.malla.material.transparent = true;
+    if (p.vida <= 0){ escena.remove(p.malla); particulas.splice(i,1); }
+  }
+  window.__llamas?.forEach(l=>{ l.luz.intensity = 1.1 + Math.sin(performance.now()*0.01 + l.fase)*0.35; });
+}
+
+function crearOndaExpansiva(pos, radioMax, color){
+  const geo = new THREE.RingGeometry(0.05,0.15,32);
+  const mat = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.8, side:THREE.DoubleSide });
+  const anillo = new THREE.Mesh(geo,mat);
+  anillo.rotation.x = -Math.PI/2;
+  anillo.position.set(pos.x,0.05,pos.z);
+  escena.add(anillo);
+  const inicio = performance.now();
+  function paso(){
+    const t = (performance.now()-inicio)/500;
+    if (t>=1){ escena.remove(anillo); return; }
+    const escala = 0.3 + t*radioMax;
+    anillo.scale.set(escala,escala,escala);
+    mat.opacity = 0.8*(1-t);
+    requestAnimationFrame(paso);
+  }
+  paso();
+}
+
+function mostrarMensajeFlotante(texto){
+  const el = document.getElementById("mensaje-flotante");
+  el.textContent = texto;
+  el.classList.remove("mostrar"); void el.offsetWidth; el.classList.add("mostrar");
+}
+
+function mostrarPuntosFlotantes(pos, texto){
+  const sprite = crearSpriteTexto(texto, "#c9a24a");
+  sprite.position.set(pos.x, 0.9, pos.z);
+  escena.add(sprite);
+  const inicio = performance.now();
+  function paso(){
+    const t = (performance.now()-inicio)/900;
+    if (t>=1){ escena.remove(sprite); return; }
+    sprite.position.y = 0.9 + t*0.8;
+    sprite.material.opacity = 1-t;
+    requestAnimationFrame(paso);
+  }
+  paso();
+}
+
+function mostrarPistaGesto(texto){
+  const el = document.getElementById("pista-gesto");
+  el.textContent = texto;
+  el.classList.add("visible");
+  clearTimeout(window.__timeoutPista);
+  window.__timeoutPista = setTimeout(()=> el.classList.remove("visible"), 4200);
+}
+
+
+/* ============================================================================================
+   14. INTERFAZ DE USUARIO — HUD y pantallas
+   ============================================================================================ */
+function actualizarHUDCorazones(){
+  const cont = document.getElementById("hud-corazones");
+  cont.innerHTML = "";
+  const totalCorazones = Math.ceil(CONFIG.jugador.vidaMaxima/2);
+  for (let i=0;i<totalCorazones;i++){
+    const valor = estado.vida - i*2; // 2=lleno, 1=medio, <=0=vacío
+    let relleno;
+    if (valor >= 2) relleno = "M12 21s-7.5-4.6-10-9C.4 8.1 2 4 6 4c2 0 3.5 1.3 4 2.4C10.5 5.3 12 4 14 4c4 0 5.6 4.1 4 8-2.5 4.4-10 9-10 9z";
+    else if (valor === 1) relleno = "half";
+    else relleno = null;
+
+    const div = document.createElement("div"); div.className="corazon";
+    div.innerHTML = `<svg viewBox="0 0 24 24">
+      <path d="M12 21s-7.5-4.6-10-9C.4 8.1 2 4 6 4c2 0 3.5 1.3 4 2.4C10.5 5.3 12 4 14 4c4 0 5.6 4.1 4 8-2.5 4.4-10 9-10 9z" fill="#3a1414" stroke="#170a0a" stroke-width="0.6"/>
+      ${relleno && relleno!=="half" ? `<path d="${relleno}" fill="#c73b3b"/>` : ""}
+      ${relleno==="half" ? `<clipPath id="clip${i}"><rect x="0" y="0" width="12" height="24"/></clipPath><path d="M12 21s-7.5-4.6-10-9C.4 8.1 2 4 6 4c2 0 3.5 1.3 4 2.4C10.5 5.3 12 4 14 4c4 0 5.6 4.1 4 8-2.5 4.4-10 9-10 9z" fill="#c73b3b" clip-path="url(#clip${i})"/>` : ""}
+    </svg>`;
+    cont.appendChild(div);
+  }
+}
+function actualizarHUDNivel(){
+  const nivel = CONFIG.niveles[estado.nivelIndice];
+  document.getElementById("hud-nivel-nombre").textContent = "NIVEL "+(estado.nivelIndice+1)+" — "+nivel.nombre.toUpperCase();
+  document.getElementById("hud-oleada").textContent = estado.jefeActivo ? "¡JEFE!" : ("Oleada "+(estado.oleadaIndice+1)+"/"+nivel.oleadas.length);
+}
+function actualizarHUD(){
+  document.getElementById("hud-puntos").textContent = estado.puntuacion;
+  document.getElementById("hud-monedas").textContent = estado.monedas;
+  document.getElementById("hud-tiempo").textContent = formatoTiempo(estado.tiempoTranscurrido);
+}
+
+function ocultarTodasLasPantallas(){
+  document.querySelectorAll(".pantalla").forEach(p=> p.classList.add("oculto"));
+}
+function mostrarPantalla(id){
+  ocultarTodasLasPantallas();
+  document.getElementById(id).classList.remove("oculto");
+}
+
+
+/* ============================================================================================
+   15. FLUJO DE PARTIDA — inicio, progresión de niveles, pausa, fin
+   ============================================================================================ */
+function iniciarNuevaPartida(){
+  // Limpiar entidades de una partida anterior
+  [...enemigos].forEach(e=>escena.remove(e.malla)); enemigos.length = 0;
+  [...proyectiles].forEach(p=>escena.remove(p.malla)); proyectiles.length = 0;
+  [...recolectables].forEach(r=>escena.remove(r.malla)); recolectables.length = 0;
+  [...particulas].forEach(p=>escena.remove(p.malla)); particulas.length = 0;
+  if (jefe){ escena.remove(jefe.malla); jefe = null; }
+
+  estado.nivelIndice = 0;
+  estado.oleadaIndice = 0;
+  estado.puntuacion = 0;
+  estado.monedas = 0;
+  estado.tiempoTranscurrido = 0;
+  estado.jefeActivo = false;
+  estado.jefeDerrotado = false;
+  estado.transicionando = false;
+  reiniciarJugador();
+
+  estado.escenaActual = "jugando";
+  document.getElementById("hud").classList.add("visible");
+  document.getElementById("barra-jefe").classList.remove("visible");
+  actualizarHUDCorazones();
+  actualizarHUDNivel();
+  actualizarHUD();
+  ocultarTodasLasPantallas();
+
+  if (estado.modoControl === "escritorio"){
+    document.getElementById("retícula").style.display = "block";
+    document.getElementById("boton-pausa-flotante").classList.add("visible");
+  }
+
+  iniciarOleada();
+  if (estado.modoControl === "vr") mostrarPistaGesto("Izquierda: pellizca y arrastra para moverte. Derecha: señala y pellizca para disparar.");
+}
+
+function comprobarProgresionNivel(){
+  if (estado.transicionando || estado.jefeActivo) return;
+  if (estado.enemigosVivosOleada > 0) return;
+
+  const nivel = CONFIG.niveles[estado.nivelIndice];
+  estado.oleadaIndice++;
+
+  if (estado.oleadaIndice < nivel.oleadas.length){
+    estado.transicionando = true;
+    audio.oleadaSuperada();
+    mostrarMensajeFlotante("¡OLEADA SUPERADA!");
+    setTimeout(()=>{ iniciarOleada(); estado.transicionando = false; }, 1400);
+    return;
+  }
+
+  // Todas las oleadas del nivel completadas
+  if (nivel.jefeFinal && !estado.jefeDerrotado){
+    estado.transicionando = true;
+    setTimeout(()=>{ invocarJefe(); estado.transicionando = false; }, 1200);
+    return;
+  }
+
+  if (estado.nivelIndice < CONFIG.niveles.length-1){
+    estado.transicionando = true;
+    audio.oleadaSuperada();
+    mostrarMensajeFlotante("NIVEL SUPERADO");
+    setTimeout(()=>{
+      estado.nivelIndice++;
+      estado.oleadaIndice = 0;
+      actualizarHUDNivel();
+      iniciarOleada();
+      estado.transicionando = false;
+    }, 1700);
+  } else if (!CONFIG.niveles[estado.nivelIndice].jefeFinal){
+    terminarPartida("victoria");
+  }
+}
+
+function alternarPausa(){
+  if (estado.escenaActual === "jugando"){
+    estado.escenaActual = "pausa";
+    mostrarPantalla("pantalla-pausa");
+  } else if (estado.escenaActual === "pausa"){
+    estado.escenaActual = "jugando";
+    ocultarTodasLasPantallas();
+  }
+}
+
+function terminarPartida(resultado){
+  estado.escenaActual = "fin";
+  estado.resultado = resultado;
+  document.getElementById("hud").classList.remove("visible");
+
+  const esVictoria = resultado === "victoria";
+  document.getElementById("titulo-fin").textContent = esVictoria ? "HAS SOBREVIVIDO" : "HAS CAÍDO";
+  document.getElementById("subtitulo-fin").textContent = esVictoria
+    ? "El sótano, por fin, calla."
+    : "El sótano te ha reclamado.";
+  document.getElementById("fin-puntuacion").textContent = estado.puntuacion;
+  document.getElementById("fin-nivel").textContent = (estado.nivelIndice+1)+" / "+CONFIG.niveles.length;
+  document.getElementById("fin-tiempo").textContent = formatoTiempo(estado.tiempoTranscurrido);
+
+  if (!esVictoria) audio.derrota();
+  mostrarPantalla("pantalla-fin");
+}
+
+
+/* ============================================================================================
+   16. CÁMARA
+   ============================================================================================ */
+function actualizarCamara(dt){
+  if (renderer.xr.isPresenting) return; // en VR, el propio casco controla la cámara
+  const deseada = new THREE.Vector3(jugador.posicion.x, 5.2, jugador.posicion.z + 5.6);
+  camara.position.lerp(deseada, Math.min(1, dt*4));
+  objetivoCamara.lerp(new THREE.Vector3(jugador.posicion.x,0.6,jugador.posicion.z), Math.min(1,dt*5));
+  camara.lookAt(objetivoCamara);
+}
+
+
+/* ============================================================================================
+   17. BUCLE PRINCIPAL
+   ============================================================================================ */
+function bucleAnimacion(timestamp, frame){
+  const dt = Math.min(reloj.getDelta(), 0.05);
+
+  if (estado.escenaActual === "jugando"){
+    estado.tiempoTranscurrido += dt;
+
+    if (estado.modoControl === "vr" && frame){ actualizarEntradaVR(frame); }
+    else if (estado.modoControl === "escritorio"){ actualizarEntradaEscritorio(dt); }
+
+    actualizarJugador(dt);
+    actualizarEnemigos(dt);
+    actualizarProyectiles(dt);
+    actualizarRecolectables(dt);
+    actualizarParticulas(dt);
+    if (estado.jefeActivo) actualizarJefe(dt);
+    comprobarProgresionNivel();
+    actualizarHUD();
+  } else if (estado.modoControl === "vr" && frame){
+    // Seguir leyendo manos en pausa/menú para que dom-overlay + pellizco puedan pulsar botones
+    actualizarEntradaVR(frame);
+  } else {
+    actualizarParticulas(dt);
+  }
+
+  actualizarCamara(dt);
+  renderer.render(escena, camara);
+}
+
+
+/* ============================================================================================
+   18. INICIALIZACIÓN Y EVENTOS DE INTERFAZ
+   ============================================================================================ */
+function conectarBotonesUI(){
+  document.getElementById("btn-jugar").addEventListener("click", ()=>{ audio.asegurarContexto(); iniciarNuevaPartida(); });
+  document.getElementById("btn-instrucciones").addEventListener("click", ()=> mostrarPantalla("pantalla-instrucciones"));
+  document.getElementById("btn-volver-menu-instrucciones").addEventListener("click", ()=> mostrarPantalla("pantalla-menu"));
+  document.getElementById("btn-entrar-vr").addEventListener("click", entrarEnVR);
+
+  document.getElementById("btn-reanudar").addEventListener("click", alternarPausa);
+  document.getElementById("btn-reiniciar-pausa").addEventListener("click", ()=>{ audio.asegurarContexto(); iniciarNuevaPartida(); });
+  document.getElementById("btn-salir-menu").addEventListener("click", ()=>{
+    estado.escenaActual = "menu";
+    document.getElementById("hud").classList.remove("visible");
+    mostrarPantalla("pantalla-menu");
+  });
+
+  document.getElementById("btn-reintentar").addEventListener("click", ()=>{ audio.asegurarContexto(); iniciarNuevaPartida(); });
+  document.getElementById("btn-fin-menu").addEventListener("click", ()=>{
+    estado.escenaActual = "menu";
+    mostrarPantalla("pantalla-menu");
+  });
+
+  document.getElementById("boton-pausa-flotante").addEventListener("click", alternarPausa);
+}
+
+function detectarCompatibilidad(){
+  const aviso = document.getElementById("aviso-compatibilidad");
+  const partes = [];
+  if (!window.WebGLRenderingContext) partes.push("WebGL no disponible");
+  if (!navigator.xr) partes.push("WebXR no disponible en este navegador (se usará mouse/teclado)");
+  aviso.textContent = partes.join(" · ");
+}
+
+function iniciarJuego(){
+  iniciarEscena3D();
+  configurarEntradaEscritorio();
+  conectarBotonesUI();
+  detectarCompatibilidad();
+  comprobarSoporteVR();
+  renderer.setAnimationLoop(bucleAnimacion);
+}
+
+window.addEventListener("DOMContentLoaded", iniciarJuego);
+</script>
+</body>
+</html>
